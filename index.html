@@ -153,6 +153,7 @@ body.crisp .inner h2,body.crisp .inner h3.sh{-webkit-text-stroke:.15px currentCo
 #tts-bar{position:fixed;left:50%;bottom:calc(var(--safe-b) + 18px);transform:translateX(-50%);z-index:56;background:rgba(17,17,17,.95);color:#fff;border-radius:32px;padding:6px 10px;display:flex;gap:2px;align-items:center;box-shadow:0 6px 24px rgba(0,0,0,.45);transition:bottom .25s}
 #tts-bar button{padding:10px 15px;border-radius:22px;font-size:1.05rem;font-weight:600;color:#fff}
 #tts-bar button:active{background:rgba(255,255,255,.18)}
+#p-tts input.url{width:100%;padding:10px 12px;margin-top:6px;border:1px solid var(--line);border-radius:10px;background:transparent;color:inherit;font-size:.9rem}
 #tt-rate{min-width:46px;text-align:center;font-size:.85rem;color:#ccc}
 body.chrome #tts-bar{bottom:calc(var(--safe-b) + 112px)}
 .vl button{display:flex;justify-content:space-between;gap:10px;width:100%;padding:12px 4px;border-top:1px solid var(--line);text-align:left;font-size:.95rem}
@@ -1135,8 +1136,37 @@ $('#sh-set').onclick=e=>{if(e.target.id==='sh-set')e.target.classList.remove('op
 
 /* ---------- 읽어주기 (기기 안의 음성 사용) ---------- */
 const synth=window.speechSynthesis;
-const TTS={on:false,paused:false,q:[],i:0,gen:0,auto:false,voices:[],cur:null,wl:null};
-let ttsSet=(()=>{const d={uri:'',gender:'f',rate:1,pitch:1};try{return Object.assign(d,JSON.parse(localStorage.getItem('tb.tts')||'{}'))}catch(e){return d}})();
+const AUD=new Audio();AUD.setAttribute('playsinline','');AUD.preload='auto';
+const SILENT='data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+const EDGE=[{id:'ko-KR-SunHiNeural',g:'f',n:'선히'},{id:'ko-KR-InJoonNeural',g:'m',n:'인준'},{id:'ko-KR-HyunsuMultilingualNeural',g:'m',n:'현수 (다국어)'}];
+const TTS={fb:false,cache:new Map(),on:false,paused:false,q:[],i:0,gen:0,auto:false,voices:[],cur:null,wl:null};
+let ttsSet=(()=>{const d={uri:'',gender:'f',rate:1,pitch:1,engine:'edge',url:'',ev:{f:'ko-KR-SunHiNeural',m:'ko-KR-InJoonNeural'}};try{return Object.assign(d,JSON.parse(localStorage.getItem('tb.tts')||'{}'))}catch(e){return d}})();
+const useEdge=()=>ttsSet.engine==='edge'&&!!ttsSet.url&&!TTS.fb;
+const edgeVoice=()=>(ttsSet.ev&&ttsSet.ev[ttsSet.gender])||(ttsSet.gender==='m'?'ko-KR-InJoonNeural':'ko-KR-SunHiNeural');
+function halt(){try{synth&&synth.cancel()}catch(e){}try{AUD.onended=null;AUD.onerror=null;AUD.pause()}catch(e){}}
+function edgeFetch(text,voice){
+  const rate=Math.round((ttsSet.rate-1)*100),key=voice+'|'+rate+'|'+text;
+  if(TTS.cache.has(key))return TTS.cache.get(key);
+  const p=fetch(ttsSet.url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,voice,rate:(rate>=0?'+':'')+rate+'%'})}).then(r=>{if(!r.ok)throw new Error('http '+r.status);return r.blob()}).then(b=>{if(b.size<200)throw new Error('empty');return URL.createObjectURL(b)});
+  TTS.cache.set(key,p);p.catch(()=>TTS.cache.delete(key));
+  if(TTS.cache.size>12){const k=TTS.cache.keys().next().value,old=TTS.cache.get(k);TTS.cache.delete(k);old.then(u=>URL.revokeObjectURL(u),()=>{})}
+  return p;
+}
+async function edgeSay(g){
+  if(g!==TTS.gen||!TTS.on||TTS.paused)return;
+  if(TTS.i>=TTS.q.length){ttsNextPage(g);return}
+  const v=edgeVoice();let url;
+  try{url=await edgeFetch(TTS.q[TTS.i],v)}catch(e){
+    if(g!==TTS.gen)return;
+    TTS.fb=true;toast('자연스러운 음성 서버에 연결하지 못해 기기 음성으로 읽어요',4500);ttsSay(g);return;
+  }
+  if(g!==TTS.gen||!TTS.on||TTS.paused)return;
+  if(TTS.i+1<TTS.q.length)edgeFetch(TTS.q[TTS.i+1],v).catch(()=>{});
+  AUD.onended=()=>{if(g===TTS.gen){TTS.i++;edgeSay(g)}};
+  AUD.onerror=()=>{if(g===TTS.gen){TTS.i++;setTimeout(()=>edgeSay(g),200)}};
+  AUD.src=url;
+  try{await AUD.play()}catch(e){if(g===TTS.gen&&TTS.on){TTS.paused=true;updTts();toast('재생이 막혔어요. ▶ 를 눌러 주세요',3500)}}
+}
 const saveTts=()=>{try{localStorage.setItem('tb.tts',JSON.stringify(ttsSet))}catch(e){}};
 const FEM=/yuna|유나|sora|소라|sun-?hi|선히|heami|혜미|female|여성|여자|google 한국/i,MAL=/in-?joon|인준|minsu|민수|jinho|진호|gwanghee|광희|hyunsu|현수|(^|[^a-z])male|남성|남자|\bman\b/i;
 const gOf=v=>FEM.test(v.name)?'f':MAL.test(v.name)?'m':'?';
@@ -1190,18 +1220,21 @@ function updTts(){
   $('#tts-bar').hidden=!TTS.on;
 }
 function ttsStart(){
-  if(!synth){toast('이 브라우저는 읽어주기를 지원하지 않아요',3500);return}
+  if(!synth&&!useEdge()){toast('이 브라우저는 읽어주기를 지원하지 않아요',3500);return}
   if(S.pdf){toast('원본 쪽 보기에서는 읽어줄 수 없어요. Aa 설정에서 “글자로 변환”을 골라 주세요',4500);return}
   loadVoices();
+  TTS.fb=false;
+  if(useEdge()){try{AUD.src=SILENT;AUD.play().catch(()=>{})}catch(e){}
+    if('mediaSession' in navigator){try{navigator.mediaSession.metadata=new MediaMetadata({title:'책 읽어주기',artist:'텍스트 책장'});navigator.mediaSession.setActionHandler('play',ttsTogglePause);navigator.mediaSession.setActionHandler('pause',ttsTogglePause);navigator.mediaSession.setActionHandler('stop',ttsStop)}catch(e){}}}
   TTS.on=true;TTS.paused=false;updTts();wake(true);ttsPage(0);
 }
 function ttsStop(){
   if(!TTS.on&&!TTS.paused)return;
-  TTS.on=false;TTS.paused=false;TTS.gen++;try{synth.cancel()}catch(e){}
+  TTS.on=false;TTS.paused=false;TTS.gen++;halt();
   updTts();wake(false);
 }
 function ttsPage(startI){
-  const g=++TTS.gen;try{synth.cancel()}catch(e){}
+  const g=++TTS.gen;halt();
   TTS.q=ttsCollect();TTS.i=startI||0;
   if(!TTS.q.length){ttsNextPage(g);return}
   ttsSay(g);
@@ -1209,6 +1242,7 @@ function ttsPage(startI){
 function ttsSay(g){
   if(g!==TTS.gen||!TTS.on||TTS.paused)return;
   if(TTS.i>=TTS.q.length){ttsNextPage(g);return}
+  if(useEdge()){edgeSay(g);return}
   const u=new SpeechSynthesisUtterance(TTS.q[TTS.i]),vf=voiceFor();
   if(vf.voice){u.voice=vf.voice;u.lang=vf.voice.lang}else u.lang='ko-KR';
   u.rate=ttsSet.rate;u.pitch=vf.pitch;
@@ -1235,38 +1269,70 @@ function ttsNextPage(g){
 function ttsRestartHere(){if(TTS.on&&!TTS.paused)ttsPage(0);else if(TTS.on){TTS.q=ttsCollect();TTS.i=0}}
 function ttsTogglePause(){
   if(!TTS.on)return;
+  if(useEdge()&&AUD.src&&AUD.src!==SILENT&&!AUD.ended){
+    if(TTS.paused){TTS.paused=false;updTts();AUD.play().catch(()=>{})}else{TTS.paused=true;AUD.pause();updTts()}
+    return;
+  }
   if(TTS.paused){TTS.paused=false;updTts();ttsSay(++TTS.gen)}
-  else{TTS.paused=true;TTS.gen++;try{synth.cancel()}catch(e){}updTts()}
+  else{TTS.paused=true;TTS.gen++;halt();updTts()}
 }
-function ttsApply(){if(TTS.on&&!TTS.paused){const g=++TTS.gen;try{synth.cancel()}catch(e){}ttsSay(g)}updTts()}
-function ttsSample(){
-  if(!synth)return;try{synth.cancel()}catch(e){}
-  const u=new SpeechSynthesisUtterance('안녕하세요. 지금부터 책을 읽어 드릴게요.'),vf=voiceFor();
+function ttsApply(){if(TTS.on&&!TTS.paused){const g=++TTS.gen;halt();ttsSay(g)}updTts()}
+async function ttsSample(){
+  const msg='안녕하세요. 지금부터 책을 읽어 드릴게요.';
+  halt();
+  if(useEdge()){
+    try{AUD.src=SILENT;AUD.play().catch(()=>{});const u=await edgeFetch(msg,edgeVoice());AUD.src=u;await AUD.play();return}
+    catch(e){toast('서버에 연결하지 못했어요. 주소를 확인해 주세요',3500);return}
+  }
+  if(!synth)return;
+  const u=new SpeechSynthesisUtterance(msg),vf=voiceFor();
   if(vf.voice){u.voice=vf.voice;u.lang=vf.voice.lang}else u.lang='ko-KR';
   u.rate=ttsSet.rate;u.pitch=vf.pitch;TTS.cur=u;synth.speak(u);
 }
 function buildTtsSheet(){
   const p=$('#p-tts');p.innerHTML='<h3>읽어주기</h3>';
   loadVoices();
-  const vf=voiceFor(),cur=vf.voice;
-  p.appendChild(row('목소리',seg([['f','여자'],['m','남자']],ttsSet.uri?(cur?gOf(cur)==='?'?ttsSet.gender:gOf(cur):ttsSet.gender):ttsSet.gender,v=>{ttsSet.gender=v;ttsSet.uri='';saveTts();ttsApply();buildTtsSheet();ttsSample()})));
-  p.appendChild(row('속도',seg([[0.8,'느리게'],[1,'보통'],[1.25,'빠르게'],[1.5,'아주 빠르게']],ttsSet.rate,v=>{ttsSet.rate=v;saveTts();ttsApply();buildTtsSheet()})));
-  p.appendChild(row('음높이',seg([[0.8,'낮게'],[1,'보통'],[1.2,'높게']],ttsSet.pitch,v=>{ttsSet.pitch=v;saveTts();ttsApply();buildTtsSheet()})));
-  let note='';
-  if(!synth)note='이 브라우저에서는 읽어주기를 쓸 수 없어요.';
-  else if(!TTS.voices.length)note='한국어 음성을 찾지 못했어요. 아이패드 설정 → 손쉬운 사용 → 말하기 콘텐츠 → 음성 → 한국어에서 음성을 받아 두면 여기에 나타나요.';
-  else if(vf.fake)note='이 아이패드에는 남자 한국어 음성이 없어서, 여자 음성의 음높이를 낮춰 대신 읽어요. 진짜 남자 음성은 설정 → 손쉬운 사용 → 말하기 콘텐츠 → 음성 → 한국어에서 받을 수 있는지 확인해 보세요.';
-  else note='음성은 아이패드에 설치된 것을 써요. 더 받으려면 설정 → 손쉬운 사용 → 말하기 콘텐츠 → 음성 → 한국어를 보세요.';
-  p.appendChild(el('p','note',esc(note)));
-  if(TTS.voices.length){
-    p.appendChild(el('p','note','<b>설치된 한국어 음성</b> (눌러서 고르기)'));
-    const vl=el('div','vl');
-    for(const v of TTS.voices){
-      const g=gOf(v),b=el('button',(cur&&v.voiceURI===cur.voiceURI&&!vf.fake)?'on':'','<span>'+esc(v.name)+'</span><small>'+(g==='f'?'여자':g==='m'?'남자':'성별 모름')+(v.localService?'':' · 온라인')+'</small>');
-      b.onclick=()=>{ttsSet.uri=v.voiceURI;if(g!=='?')ttsSet.gender=g;saveTts();ttsApply();buildTtsSheet();ttsSample()};
+  const edge=ttsSet.engine==='edge';
+  p.appendChild(row('읽는 방식',seg([['edge','자연스러운 음성'],['device','기기 음성']],ttsSet.engine,v=>{ttsSet.engine=v;TTS.fb=false;saveTts();ttsApply();buildTtsSheet()})));
+  if(edge){
+    const box=el('div','set');
+    box.style.flexDirection='column';box.style.alignItems='stretch';
+    const inp=el('input','url');inp.type='url';inp.placeholder='https://….workers.dev';inp.value=ttsSet.url||'';
+    inp.autocapitalize='off';inp.autocomplete='off';inp.spellcheck=false;
+    inp.onchange=()=>{ttsSet.url=inp.value.trim();TTS.fb=false;TTS.cache.clear();saveTts();buildTtsSheet()};
+    box.append(el('label','','음성 서버 주소'),inp);p.appendChild(box);
+    if(!ttsSet.url)p.appendChild(el('p','note','주소를 넣으면 자연스러운 음성으로 읽어요. 주소 만드는 방법은 안내 파일(읽어주기-서버-만들기)을 보세요. 비워 두면 기기 음성으로 읽어요.'));
+    p.appendChild(row('목소리',seg([['f','여자'],['m','남자']],ttsSet.gender,v=>{ttsSet.gender=v;saveTts();ttsApply();buildTtsSheet();ttsSample()})));
+    const vl=el('div','vl'),cur=edgeVoice();
+    for(const v of EDGE.filter(x=>x.g===ttsSet.gender)){
+      const b=el('button',v.id===cur?'on':'','<span>'+esc(v.n)+'</span><small>'+(v.g==='f'?'여자':'남자')+'</small>');
+      b.onclick=()=>{ttsSet.ev=Object.assign({},ttsSet.ev,{[v.g]:v.id});saveTts();ttsApply();buildTtsSheet();ttsSample()};
       vl.appendChild(b);
     }
     p.appendChild(vl);
+    p.appendChild(row('속도',seg([[0.8,'느리게'],[1,'보통'],[1.2,'조금 빠르게'],[1.4,'빠르게']],ttsSet.rate,v=>{ttsSet.rate=v;saveTts();ttsApply();buildTtsSheet()})));
+    p.appendChild(el('p','note','글을 서버로 보내 음성으로 받아 오므로 인터넷이 필요해요. 화면이 꺼져도 계속 읽는 경우가 많아요.'));
+  }else{
+    const vf=voiceFor(),cur=vf.voice;
+    p.appendChild(row('목소리',seg([['f','여자'],['m','남자']],ttsSet.uri?(cur?gOf(cur)==='?'?ttsSet.gender:gOf(cur):ttsSet.gender):ttsSet.gender,v=>{ttsSet.gender=v;ttsSet.uri='';saveTts();ttsApply();buildTtsSheet();ttsSample()})));
+    p.appendChild(row('속도',seg([[0.8,'느리게'],[1,'보통'],[1.25,'빠르게'],[1.5,'아주 빠르게']],ttsSet.rate,v=>{ttsSet.rate=v;saveTts();ttsApply();buildTtsSheet()})));
+    p.appendChild(row('음높이',seg([[0.8,'낮게'],[1,'보통'],[1.2,'높게']],ttsSet.pitch,v=>{ttsSet.pitch=v;saveTts();ttsApply();buildTtsSheet()})));
+    let note='';
+    if(!synth)note='이 브라우저에서는 기기 음성을 쓸 수 없어요.';
+    else if(!TTS.voices.length)note='한국어 음성을 찾지 못했어요. 아이패드 설정 → 손쉬운 사용 → 말하기 콘텐츠 → 음성 → 한국어에서 음성을 받아 두면 여기에 나타나요.';
+    else if(vf.fake)note='이 아이패드에는 남자 한국어 음성이 없어서, 여자 음성의 음높이를 낮춰 대신 읽어요.';
+    else note='음성은 아이패드에 설치된 것을 써요.';
+    p.appendChild(el('p','note',esc(note)));
+    if(TTS.voices.length){
+      p.appendChild(el('p','note','<b>설치된 한국어 음성</b> (눌러서 고르기)'));
+      const vl=el('div','vl');
+      for(const v of TTS.voices){
+        const g=gOf(v),b=el('button',(cur&&v.voiceURI===cur.voiceURI&&!vf.fake)?'on':'','<span>'+esc(v.name)+'</span><small>'+(g==='f'?'여자':g==='m'?'남자':'성별 모름')+(v.localService?'':' · 온라인')+'</small>');
+        b.onclick=()=>{ttsSet.uri=v.voiceURI;if(g!=='?')ttsSet.gender=g;saveTts();ttsApply();buildTtsSheet();ttsSample()};
+        vl.appendChild(b);
+      }
+      p.appendChild(vl);
+    }
   }
   const act=el('div','set');
   const t=el('button','btn ghost','시험 듣기');t.onclick=ttsSample;
@@ -1276,14 +1342,14 @@ function buildTtsSheet(){
 }
 $('#b-tts').onclick=()=>{buildTtsSheet();$('#sh-tts').classList.add('open')};
 $('#tt-voice').onclick=()=>{buildTtsSheet();$('#sh-tts').classList.add('open')};
-$('#sh-tts').onclick=e=>{if(e.target.id==='sh-tts'){e.target.classList.remove('open');try{synth.cancel()}catch(x){}if(TTS.on&&!TTS.paused)ttsSay(++TTS.gen)}};
+$('#sh-tts').onclick=e=>{if(e.target.id==='sh-tts'){e.target.classList.remove('open');halt();if(TTS.on&&!TTS.paused)ttsSay(++TTS.gen)}};
 $('#tt-play').onclick=ttsTogglePause;
 $('#tt-stop').onclick=ttsStop;
 const RATES=[0.7,0.85,1,1.15,1.3,1.5,1.75,2];
 const stepRate=d=>{let i=RATES.findIndex(r=>r>=ttsSet.rate-0.001);if(i<0)i=2;i=Math.max(0,Math.min(RATES.length-1,i+d));ttsSet.rate=RATES[i];saveTts();ttsApply()};
 $('#tt-slow').onclick=()=>stepRate(-1);
 $('#tt-fast').onclick=()=>stepRate(1);
-document.addEventListener('visibilitychange',()=>{if(!document.hidden&&TTS.on){wake(true);if(!TTS.paused)ttsSay(++TTS.gen)}});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&TTS.on){wake(true);if(!TTS.paused&&!useEdge())ttsSay(++TTS.gen)}});
 
 /* 창 크기·회전 */
 let rsT,lastW=innerWidth,lastH=innerHeight;
@@ -1299,7 +1365,7 @@ addEventListener('resize',()=>{
 });
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&S.meta)dbPut('books',S.meta)});
 
-window.__tb={TTS,ttsSet,S,M:()=>M,pageStarts,pageCount,buildPage,kidsOf,measure};
+window.__tb={AUD,TTS,ttsSet,S,M:()=>M,pageStarts,pageCount,buildPage,kidsOf,measure};
 try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
 applySet();renderLib();
 if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});
