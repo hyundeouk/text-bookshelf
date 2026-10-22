@@ -57,6 +57,15 @@ body[data-view=lib] #reader{display:none}
 .book.add .cover::before,.book.add .cover::after{display:none}
 .book.add .plus{font-size:2.2rem;line-height:1}
 .mi{display:block;width:100%;text-align:left;padding:15px 4px;border-top:1px solid var(--line);font-size:1rem}
+.sortrow{display:flex;align-items:center;gap:10px;margin:0 0 24px;font-size:.88rem;color:var(--mut);flex-wrap:wrap}
+.chk{position:absolute;top:8px;left:16px;z-index:4;width:28px;height:28px;border-radius:50%;border:2px solid #fff;background:rgba(0,0,0,.4);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}
+.book.sel .chk{background:var(--acc)}
+.book.sel .chk::after{content:"✓"}
+.book.sel .cover{outline:3px solid var(--acc);outline-offset:1px}
+#selbar{position:fixed;left:0;right:0;bottom:0;z-index:60;background:var(--ui);color:var(--uink);padding:12px 20px calc(var(--safe-b) + 12px);display:flex;gap:10px;align-items:center;box-shadow:0 -4px 18px rgba(0,0,0,.2)}
+#selbar span{flex:1;font-weight:600}
+.toc button.vol{font-weight:700;background:var(--line);border-radius:8px;padding-left:10px;margin-top:8px}
+.inner h2.volt{margin-top:calc(var(--ch,600px)*.3);font-size:1.7em}
 #empty{max-width:520px;color:var(--mut);line-height:1.7;padding:22px 0 0}
 #drop{position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.45);color:#fff;display:none;align-items:center;justify-content:center;font-size:1.5rem;font-weight:700}
 #drop.on{display:flex}
@@ -134,11 +143,14 @@ textarea{height:34vh;margin-top:8px;resize:none}
   <div class="actions">
     <label class="btn">＋ 파일 추가 (txt · PDF)<input id="file" class="off" type="file" accept="text/plain,.txt,.text,.md,.log,application/pdf,.pdf" multiple></label>
     <button class="btn ghost" id="btn-paste">✎ 글 붙여넣기</button>
+    <button class="btn ghost" id="btn-merge">☑ 책 합치기</button>
     <button class="btn ghost" id="btn-sample" hidden>📖 사용 안내 책 넣기</button>
   </div>
+  <div id="sortrow" class="sortrow"></div>
   <div id="grid"></div>
   <div id="empty" hidden>아직 책이 없어요.<br>위의 <b>＋ 파일 추가</b>를 눌러 아이패드의 "파일" 앱에서 .txt 또는 PDF 파일을 고르세요. 한글이 깨지는 옛날 형식(EUC-KR) 파일, 줄이 중간에서 끊긴 파일도 자동으로 고쳐서 보여 줘요. 책 표지는 책 모서리의 ⋯ 단추에서 사진으로 올릴 수 있어요.</div>
 </div>
+<div id="selbar" hidden><span id="selcount"></span><button class="btn ghost" id="sel-all">모두 선택</button><button class="btn" id="sel-ok">합치기</button><button class="btn ghost" id="sel-cancel">취소</button></div>
 <input id="cover-file" class="off" type="file" accept="image/*">
 <div id="drop">여기에 놓으면 책이 추가돼요</div>
 
@@ -264,7 +276,7 @@ function parse(text,mode){
     const t=raw.trim().replace(/^\u3000+/,'');
     if(!t){if(wrapped)flush();continue}
     if(SCENE.test(t)){flush();out.push({t:'s'});continue}
-    if(isChapter(t)){flush();out.push({t:'h',v:cleanTitle(t)});continue}
+    if(isChapter(t)){flush();out.push({t:'h',v:cleanTitle(t),vol:/^#\s+\S/.test(t)});continue}
     if(!wrapped){out.push({t:'p',v:t});continue}
     const indented=/^( {2,}|\t|\u3000)/.test(raw);
     if(cur){
@@ -277,13 +289,13 @@ function parse(text,mode){
   // 장 단위로 묶기
   let secs=[],c={title:'',chap:false,items:[]};
   for(const it of out){
-    if(it.t==='h'){if(c.items.length||c.title)secs.push(c);c={title:it.v,chap:true,items:[]}}
+    if(it.t==='h'){if(c.items.length||c.title)secs.push(c);c={title:it.v,chap:true,items:[],vol:!!it.vol}}
     else c.items.push(it);
   }
   secs.push(c);
   // 목차 줄만 있는 앞부분은 하나의 "차례" 글로
   let lead=0;
-  while(lead<secs.length-1&&secs[lead].chap&&secs[lead].items.length===0)lead++;
+  while(lead<secs.length-1&&secs[lead].chap&&secs[lead].items.length===0&&!secs[lead].vol)lead++;
   if(lead>0){
     const toc={title:'차례',chap:true,items:secs.slice(0,lead).map(s=>({t:'p',v:s.title}))};
     secs=[toc,...secs.slice(lead)];
@@ -293,9 +305,9 @@ function parse(text,mode){
   const fin=[];
   for(const s of secs){
     const total=s.items.reduce((a,x)=>a+(x.v?x.v.length:3),0);
-    if(total<=CHUNK){fin.push({title:s.title,toc:!!s.title,items:s.items});continue}
+    if(total<=CHUNK){fin.push({title:s.title,toc:!!s.title,vol:!!s.vol,items:s.items});continue}
     let part=[],sum=0,first=true;
-    const push=()=>{fin.push({title:first?s.title:'',toc:first&&!!s.title,items:part});first=false;part=[];sum=0};
+    const push=()=>{fin.push({title:first?s.title:'',toc:first&&!!s.title,vol:first&&!!s.vol,items:part});first=false;part=[];sum=0};
     for(const it of s.items){const n=it.v?it.v.length:3;if(sum+n>CHUNK&&part.length)push();part.push(it);sum+=n}
     if(part.length||first)push();
   }
@@ -306,7 +318,7 @@ function parse(text,mode){
 function secHTML(s){
   const sec=S.secs[s];
   if(sec.html)return sec.html;
-  return sec.html=(sec.title?'<h2>'+esc(sec.title)+'</h2>':'')+sec.items.map(i=>i.t==='s'?'<div class="sb">· · ·</div>':'<p>'+esc(i.v)+'</p>').join('');
+  return sec.html=(sec.title?'<h2'+(sec.vol&&!sec.items.length?' class="volt"':'')+'>'+esc(sec.title)+'</h2>':'')+sec.items.map(i=>i.t==='s'?'<div class="sb">· · ·</div>':'<p>'+esc(i.v)+'</p>').join('');
 }
 
 /* ---------- 상태·설정 ---------- */
@@ -358,15 +370,81 @@ $('#cover-file').onchange=async e=>{
   catch(err){toast('사진을 읽지 못했어요')}
 };
 $('#sh-book').onclick=e=>{if(e.target.id==='sh-book')e.target.classList.remove('open')};
+let selMode=false;const sel=new Set();let libMetas=[];
+let sortMode=(()=>{try{return localStorage.getItem('tb.sort')||'name'}catch(e){return 'name'}})();
+const coll=new Intl.Collator('ko',{numeric:true,sensitivity:'base'});
+const cmpMeta=(a,b)=>coll.compare(a.title.normalize('NFKC'),b.title.normalize('NFKC'));
+function sortMetas(ms){
+  if(sortMode==='recent')ms.sort((a,b)=>(b.last||b.added)-(a.last||a.added));
+  else if(sortMode==='added')ms.sort((a,b)=>a.added-b.added);
+  else ms.sort(cmpMeta);
+}
+function buildSortRow(){
+  const row=$('#sortrow');row.innerHTML='정렬';
+  const d=el('div','seg');
+  for(const[v,l]of[['name','이름순 (숫자 순서)'],['recent','최근 읽은 순'],['added','추가한 순']]){
+    const b=el('button',v===sortMode?'on':'',l);
+    b.onclick=()=>{sortMode=v;try{localStorage.setItem('tb.sort',v)}catch(e){}renderLib()};
+    d.appendChild(b);
+  }
+  row.appendChild(d);
+}
+function enterSel(){selMode=true;sel.clear();$('#selbar').hidden=false;updSel();renderLib();toast('합칠 책을 눌러서 고르세요',2500)}
+function exitSel(){selMode=false;sel.clear();$('#selbar').hidden=true;renderLib()}
+function updSel(){$('#selcount').textContent=sel.size+'권 선택';$('#sel-ok').disabled=sel.size<2;$('#sel-ok').style.opacity=sel.size<2?.5:1}
+$('#btn-merge').onclick=()=>selMode?exitSel():enterSel();
+$('#sel-cancel').onclick=exitSel;
+$('#sel-all').onclick=()=>{if(sel.size===libMetas.length)sel.clear();else libMetas.forEach(m=>sel.add(m.id));updSel();document.querySelectorAll('#grid .book:not(.add)').forEach((b,i)=>b.classList.toggle('sel',sel.has(libMetas[i].id)))};
+$('#sel-ok').onclick=()=>mergeSelected();
+function cleanText(text){
+  const r=parse(text,'auto'),out=[];
+  for(const sc of r.secs){
+    if(sc.title)out.push('## '+sc.title);
+    for(const it of sc.items)out.push(it.t==='s'?'* * *':it.v);
+  }
+  return out.join('\n\n');
+}
+function commonTitle(ts){
+  let p=ts[0];
+  for(const t of ts){let i=0;while(i<p.length&&i<t.length&&p[i]===t[i])i++;p=p.slice(0,i)}
+  p=p.replace(/[\s\-_.,()\[\]]+$/,'').replace(/\d+$/,'').replace(/[\s\-_.,()\[\]]+$/,'');
+  return p.length>=2?p:ts[0];
+}
+async function mergeSelected(){
+  const metas=(await dbAll('books')).filter(m=>sel.has(m.id)).sort(cmpMeta);
+  if(metas.length<2){toast('2권 이상 골라 주세요');return}
+  const bad=metas.find(m=>m.src==='pdf'&&!m.hasText);
+  if(bad){toast('글자가 없는 스캔 PDF는 합칠 수 없어요: '+bad.title,4000);return}
+  if(!confirm('이 순서로 한 권으로 합칠게요.\n\n'+metas.map((m,i)=>(i+1)+'. '+m.title).join('\n')+'\n\n계속할까요?'))return;
+  const name=prompt('합친 책의 이름',commonTitle(metas.map(m=>m.title)));
+  if(!name||!name.trim())return;
+  toast('합치는 중…',60000);
+  const parts=[];
+  for(const m of metas){
+    const t=await dbGet('texts',m.id);
+    parts.push('# '+m.title+'\n\n'+cleanText(t.text||''));
+  }
+  const text=parts.join('\n\n');
+  const r=parse(text,'lines');
+  const cover=(metas.find(m=>m.cover)||{}).cover||null;
+  const nm={id:uid(),title:name.trim(),size:metas.reduce((a,m)=>a+m.size,0),enc:'UTF-8',added:Date.now(),mode:'lines',chapters:r.stats.chapters,pct:0,pos:null,cover,coverCustom:false,merged:metas.length};
+  await dbPut('books',nm);await dbPut('texts',{id:nm.id,text});
+  let removed=false;
+  if(confirm('“'+nm.title+'” 한 권으로 합쳤어요.\n\n원래 책 '+metas.length+'권은 서재에서 지울까요?\n(“취소”를 누르면 그대로 둡니다)')){
+    for(const m of metas){await dbDel('books',m.id);await dbDel('texts',m.id)}removed=true;
+  }
+  exitSel();
+  toast('합치기 완료'+(removed?'':' · 원래 책은 그대로 남겨 두었어요'),3500);
+}
 async function renderLib(){
   const metas=await dbAll('books');
-  metas.sort((a,b)=>(b.last||b.added)-(a.last||a.added));
+  sortMetas(metas);libMetas=metas;buildSortRow();
   const grid=$('#grid');grid.innerHTML='';
   $('#empty').hidden=metas.length>0;
   $('#btn-sample').hidden=metas.length>0;
   const addTile=el('div','book add','<div class="shelf"><div class="cover"><span class="plus">＋</span><span>책 추가</span></div></div><div class="bname">&nbsp;</div>');
   addTile.onclick=()=>$('#file').click();
-  grid.appendChild(addTile);
+  if(!selMode)grid.appendChild(addTile);
   for(const m of metas){
     const c=el('div','book');
     const pct=Math.round((m.pct||0)*100);
@@ -377,8 +455,13 @@ async function renderLib(){
     const more=el('button','more','⋯');more.setAttribute('aria-label','더보기');
     more.onclick=e=>{e.stopPropagation();openBookMenu(m)};
     shelf.append(cover,more);
-    c.append(shelf,el('div','bname',esc(m.title)),el('div','binfo',(m.src==='pdf'?'PDF · ':'')+fmtSize(m.size)+' · '+pct+'% 읽음'),el('div','pbar','<i style="width:'+pct+'%"></i>'));
-    c.onclick=()=>openBook(m.id);
+    if(selMode){more.hidden=true;shelf.appendChild(el('div','chk'));c.classList.toggle('sel',sel.has(m.id))}
+    c.append(shelf,el('div','bname',esc(m.title)),el('div','binfo',(m.merged?m.merged+'권 합침 · ':'')+(m.src==='pdf'?'PDF · ':'')+fmtSize(m.size)+' · '+pct+'% 읽음'),el('div','pbar','<i style="width:'+pct+'%"></i>'));
+    c.onclick=()=>{
+      if(!selMode){openBook(m.id);return}
+      if(sel.has(m.id))sel.delete(m.id);else sel.add(m.id);
+      c.classList.toggle('sel',sel.has(m.id));updSel();
+    };
     grid.appendChild(c);
   }
 }
@@ -517,7 +600,7 @@ function sizeBook(){
   castR.style.cssText='left:'+(spread?pw:0)+'px;width:'+pw+'px;height:'+ph+'px;background:'+g;
   castL.style.cssText='left:0;width:'+pw+'px;height:'+ph+'px;background:'+g2+(spread?'':';display:none');
 }
-function innerStyle(k){return 'width:'+M.cw+'px;height:'+M.ch+'px;column-width:'+M.cw+'px;'+(k?'transform:translateX('+(-k*M.cw)+'px)':'')}
+function innerStyle(k){return '--ch:'+M.ch+'px;width:'+M.cw+'px;height:'+M.ch+'px;column-width:'+M.cw+'px;'+(k?'transform:translateX('+(-k*M.cw)+'px)':'')}
 function pageCount(s){
   if(S.pdf)return S.pdf.n;
   if(counts.has(s))return counts.get(s);
@@ -796,7 +879,7 @@ $('#b-toc').onclick=()=>{
   let any=false;
   S.secs.forEach((s,i)=>{
     if(!s.toc)return;any=true;
-    const b=el('button',i===S.pos.s||(i<S.pos.s&&!S.secs.slice(i+1,S.pos.s+1).some(x=>x.toc))?'cur':'');
+    const b=el('button',((i===S.pos.s||(i<S.pos.s&&!S.secs.slice(i+1,S.pos.s+1).some(x=>x.toc)))?'cur':'')+(s.vol?' vol':''));
     b.innerHTML='<span>'+esc(s.title)+'</span><small>'+Math.round(S.cum[i]/S.total*100)+'%</small>';
     b.onclick=()=>{$('#sh-toc').classList.remove('open');jumpSec(i)};
     box.appendChild(b);
