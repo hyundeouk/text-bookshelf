@@ -1184,7 +1184,7 @@ function voiceFor(){
 const HN={一:'일',二:'이',三:'삼',四:'사',五:'오',六:'육',七:'칠',八:'팔',九:'구',十:'십',百:'백',千:'천'};
 const HU={章:'장',回:'회',節:'절',卷:'권',話:'화',话:'화'};
 function ttsClean(t){
-  return t.replace(/[(（\[［〔【〈《「『][^()（）\[\]［］〔〕【】〈〉《》「」『』]{0,40}[)）\]］〕】〉》」』]/g,m=>{if(!/[\u3400-\u9fff\uf900-\ufaff]/.test(m))return m;const r=m.slice(1,-1).replace(/[\u3400-\u9fff\uf900-\ufaff]+/g,'');return /[가-힣a-zA-Z]/.test(r)?m[0]+r.replace(/^[\s,，、·・:：;]+|[\s,，、·・:：;]+$/g,'')+m[m.length-1]:''})
+  return t.replace(/[(（\[［〔【〈《「『][^()（）\[\]［］〔〕【】〈〉《》「」『』]{0,40}[)）\]］〕】〉》」』]/g,m=>/[\u3400-\u9fff\uf900-\ufaff]/.test(m)?'':m)
     .replace(/第\s*([一二三四五六七八九十百千0-9]+)\s*([章回節卷話话])/g,(m,n,u)=>'제 '+n.replace(/[一二三四五六七八九十百千]/g,c=>HN[c])+' '+HU[u])
     .replace(/[<>《》「」『』]/g,' ').replace(/\s+/g,' ').trim();
 }
@@ -1211,6 +1211,7 @@ function chunkText(t){
 function ttsCollect(){
   const{s,k}=S.pos,n=pageCount(s);let t=pageText(s,k);
   if(M.spread&&k+1<n)t+=' '+pageText(s,k+1);
+  t=ttsClean(t).replace(/^[^()（）가-힣]{0,30}[)）]/,m=>/[\u3400-\u9fff]/.test(m)?'':m).replace(/[(（][^()（）가-힣]{0,30}$/,'');
   return chunkText(ttsClean(t));
 }
 async function wake(on){try{if(on){if(navigator.wakeLock&&!TTS.wl)TTS.wl=await navigator.wakeLock.request('screen')}else if(TTS.wl){await TTS.wl.release();TTS.wl=null}}catch(e){TTS.wl=null}}
