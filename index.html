@@ -131,6 +131,13 @@ body.left .inner{text-align:left}
 .inner h3.sh{font-size:1.04em;font-weight:700;color:var(--head);text-indent:0;text-align:left;margin:1.05em 0 .45em;line-height:1.5;break-after:avoid}
 .inner .sb{text-align:center;letter-spacing:.6em;color:var(--head);margin:.7em 0;text-indent:0}
 body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+.inner.flow{overflow:hidden}
+.inner h2.volt{margin-top:calc(var(--ch,600px)*.3);font-size:1.75em}
+.toc button.vol{font-weight:700;background:var(--line);border-radius:8px;padding-left:10px;margin-top:8px}
+.inner.pg1>:first-child{margin-top:0}
+.inner p.c{text-indent:0}
+.inner p.t{text-align-last:justify}
+body.left .inner p.t{text-align-last:auto}
 body.crisp .inner{-webkit-text-stroke:.3px currentColor;text-rendering:optimizeLegibility}
 body.crisp .inner h2,body.crisp .inner h3.sh{-webkit-text-stroke:.15px currentColor}
 .head,.foot{position:absolute;left:0;right:0;text-align:center;font:11px var(--ff-sans);color:var(--mut);pointer-events:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 40px}
@@ -300,7 +307,7 @@ const CH_STRONG=[
   /^(chapter|part|book)\s+[0-9ivxlc]+\b/i,
   /^(prologue|epilogue)\b/i,
   /^(프롤로그|에필로그|서장|서문|서막|후기|작가의\s*말|외전|번외편?|종장|마지막\s*화)(?=\s|[.:：\-–—)\]]|$)/,
-  /^第[0-9一二三四五六七八九十百千]+[章回節卷話话]/,
+  /^第\s*[0-9一二三四五六七八九十百千]+\s*[章回節卷話话]/,
   /^#{1,3}\s+\S/
 ];
 const CH_WEAK=/^[0-9]{1,4}\s*[화장회편](?=\s|[.:：\-–—)\]]|$)/;
@@ -317,9 +324,9 @@ function joinLines(a,b){
   if(/-$/.test(a)&&/[a-z]/.test(y)&&/[a-z]/i.test(a.slice(-2,-1)))return a.slice(0,-1)+b;
   return a+' '+b;
 }
-const SUB_RE=/^(?:\d{1,2}[.)]\s*\S|[■◆●▶▷◎□◇○▲]\s*\S|\[[^\]]{1,30}\]$|[가-하][.)]\s*\S|[IVX]{1,4}\.\s*\S|\(\d{1,2}\)\s*\S)/;
+const SUB_RE=/^(?:\d{1,2}[.)]\s*\S|[■◆●▶▷◎□◇○▲]\s*\S|[가-하][.)]\s*\S|[IVX]{1,4}\.\s*\S|\(\d{1,2}\)\s*\S|[一二三四五六七八九十]{1,3}[.、)]\s*\S)/;
 function isSub(t){return t.length<=36&&SUB_RE.test(t)&&!/[.?!。…"”'’다요죠]$/.test(t)}
-const CHUNK=16000;
+const CHUNK=50000;
 function parse(text,mode){
   const lines=text.split('\n');
   const ne=lines.filter(l=>l.trim());
@@ -351,6 +358,10 @@ function parse(text,mode){
     cur=cur?joinLines(cur,t):t;prevLen=t.length;
   }
   flush();
+  for(let i=0;i<out.length-1;i++){
+    const a=out[i],b=out[i+1];
+    if(a.t==='p'&&b.t==='h'&&a.v.length<=40&&!/[.?!。…"”'’다요죠\]]$/.test(a.v)&&!/^[\[「『"“(]/.test(a.v)){a.t='h';a.vol=true;a.v=cleanTitle(a.v)}
+  }
   // 장 단위로 묶기
   let secs=[],c={title:'',chap:false,items:[]};
   for(const it of out){
@@ -673,6 +684,7 @@ $('#btn-sample').onclick=async()=>{
 /* ---------- 읽기: 쪽 나누기 ---------- */
 const book=$('#book'),measure=$('#measure'),stage=$('#stage');
 let M={},counts=new Map(),cache=new Map();
+const tabs=new Map();{const cc=counts.clear.bind(counts);counts.clear=()=>{cc();tabs.clear()}}
 const slotL=el('div','slot l'),slotR=el('div','slot r'),castL=el('div','cast'),castR=el('div','cast');
 book.append(slotL,slotR,castL,castR);
 function metrics(){
@@ -696,14 +708,67 @@ function sizeBook(){
   castL.style.cssText='left:0;width:'+pw+'px;height:'+ph+'px;background:'+g2+(spread?'':';display:none');
 }
 function innerStyle(k){return '--ch:'+M.ch+'px;width:'+M.cw+'px;height:'+M.ch+'px;column-width:'+M.cw+'px;'+(k?'transform:translateX('+(-k*M.cw)+'px)':'')}
+const rg=document.createRange();
+function kidsOf(s){
+  const sec=S.secs[s];if(sec.kids)return sec.kids;
+  const k=[];
+  if(sec.title)k.push({t:'h2',v:sec.title,cls:(sec.vol&&!sec.items.length)?'volt':''});
+  for(const it of sec.items)k.push({t:it.t,v:it.v||''});
+  return sec.kids=k;
+}
+function kidHTML(kd,from,to,cont,tail){
+  if(kd.t==='s')return '<div class="sb">· · ·</div>';
+  const v=esc(kd.v.slice(from,to));
+  if(kd.t==='h2')return '<h2'+(kd.cls?' class="'+kd.cls+'"':'')+'>'+v+'</h2>';
+  if(kd.t==='b')return '<h3 class="sh'+(cont?' c':'')+'">'+v+'</h3>';
+  return '<p'+((cont||tail)?' class="'+(cont?'c':'')+(cont&&tail?' ':'')+(tail?'t':'')+'"':'')+'>'+v+'</p>';
+}
+function pageStarts(s){
+  if(tabs.has(s))return tabs.get(s);
+  const kids=kidsOf(s);
+  measure.innerHTML='';
+  const inner=el('div','inner');inner.style.cssText=innerStyle(0);
+  inner.innerHTML=kids.map(kd=>kidHTML(kd,0,kd.v.length,false,false)).join('');
+  measure.appendChild(inner);
+  const W=M.cw,base=inner.getBoundingClientRect().left;
+  const total=Math.max(1,Math.ceil((inner.scrollWidth-1)/W)),ch=inner.children;
+  const txt=j=>{const k=kids[j];return(k.t==='p'||k.t==='b')&&ch[j].firstChild&&ch[j].firstChild.nodeType===3?ch[j].firstChild:null};
+  const lf=(node,q)=>{rg.setStart(node,q);rg.setEnd(node,q+1);const r=rg.getClientRects();return r.length?r[0].left-base:null};
+  const cl=(node,o)=>{const t=node.data,n=t.length;for(let q=o;q<n;q++){if(/\s/.test(t[q]))continue;const v=lf(node,q);if(v!==null)return v}return Infinity};
+  const clb=node=>{const t=node.data;for(let q=t.length-1;q>=0;q--){if(/\s/.test(t[q]))continue;const v=lf(node,q);if(v!==null)return v}return -Infinity};
+  const endL=j=>{const n=txt(j);return n?clb(n):ch[j].getBoundingClientRect().right-base-1};
+  const startL=j=>{const n=txt(j);return n?cl(n,0):ch[j].getBoundingClientRect().left-base};
+  const starts=[{c:0,o:0}];let j=0;
+  for(let k=1;k<total;k++){
+    const T=k*W-0.5;
+    while(j<kids.length&&endL(j)<T)j++;
+    if(j>=kids.length)break;
+    const n=txt(j);let st;
+    if(!n||startL(j)>=T)st={c:j,o:0};
+    else{let lo=1,hi=n.length-1;while(lo<hi){const mid=(lo+hi)>>1;if(cl(n,mid)>=T)hi=mid;else lo=mid+1}st={c:j,o:lo}}
+    const last=starts[starts.length-1];
+    if(st.c===last.c&&st.o<=last.o)continue;
+    starts.push(st);
+  }
+  measure.innerHTML='';
+  tabs.set(s,starts);counts.set(s,starts.length);
+  return starts;
+}
 function pageCount(s){
   if(S.pdf)return S.pdf.n;
   if(counts.has(s))return counts.get(s);
-  measure.innerHTML='';
-  const inner=el('div','inner');inner.style.cssText=innerStyle(0);inner.innerHTML=secHTML(s);
-  measure.appendChild(inner);
-  const n=Math.max(1,Math.ceil((inner.scrollWidth-1)/M.cw));
-  counts.set(s,n);measure.innerHTML='';return n;
+  return pageStarts(s).length;
+}
+function pageHTML(s,k){
+  const st=pageStarts(s),kids=kidsOf(s),a=st[k],b=st[k+1];
+  const c1=b?(b.o>0?b.c:b.c-1):kids.length-1;
+  let h='';
+  for(let j=a.c;j<=c1&&j<kids.length;j++){
+    const kd=kids[j],len=kd.v.length,f=j===a.c?a.o:0,t=(b&&j===b.c&&b.o>0)?b.o:len;
+    if(kd.t!=='s'&&kd.t!=='h2'&&len>0&&t<=f)continue;
+    h+=kidHTML(kd,f,t,f>0,t<len);
+  }
+  return h;
 }
 function buildPdfPage(k){
   const e=el('div','page pdfp');e.style.width=M.pw+'px';e.style.height=M.ph+'px';e._k='0:'+k;
@@ -723,7 +788,7 @@ function buildPage(s,k){
   const e=el('div','page');e.style.width=M.pw+'px';e.style.height=M.ph+'px';
   if(s==null)return e;
   const vp=el('div','vp');vp.style.cssText='left:'+M.padX+'px;top:'+M.padT+'px;width:'+M.cw+'px;height:'+M.ch+'px';
-  const inner=el('div','inner');inner.style.cssText=innerStyle(k);inner.innerHTML=secHTML(s);
+  const inner=el('div','inner flow'+(k>0?' pg1':''));inner.style.cssText='--ch:'+M.ch+'px;width:'+M.cw+'px;height:'+M.ch+'px';inner.innerHTML=pageHTML(s,k);
   vp.appendChild(inner);e.appendChild(vp);
   const sec=S.secs[s];let t=sec.title;
   if(!t){for(let i=s;i>=0;i--)if(S.secs[i].title){t=S.secs[i].title;break}}
@@ -1070,6 +1135,7 @@ addEventListener('resize',()=>{
 });
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&S.meta)dbPut('books',S.meta)});
 
+window.__tb={S,M:()=>M,pageStarts,pageCount,buildPage,kidsOf,measure};
 try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
 applySet();renderLib();
 if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});
