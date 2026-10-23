@@ -1030,7 +1030,7 @@ function inkDown(e){
   try{stage.setPointerCapture(e.pointerId)}catch(_){}
   const key=h.p._ink;
   INK.stack.push({snaps:[{key,arr:(INK.data[key]||[]).slice()}]});if(INK.stack.length>60)INK.stack.shift();
-  INK.cur={id:e.pointerId,p:h.p,r:h.r,key,st:null,changed:false};
+  INK.cur={id:e.pointerId,p:h.p,r:h.r,key,st:null,changed:false,t:performance.now()};
   if(INK.tool==='erase')inkErase(e);
   else{
     const hl=INK.tool==='hl',st={k:hl?'h':'p',c:hl?INK.hc:INK.pc,w:INK_W[hl?1:0][INK.w],q:[]};
@@ -1039,6 +1039,7 @@ function inkDown(e){
   e.preventDefault();
 }
 function inkMove(e){
+  if(INK.cur)INK.cur.t=performance.now();
   if(INK.tool==='erase')inkErase(e);else{inkPt(e);inkSched()}
   e.preventDefault();
 }
@@ -1079,7 +1080,19 @@ stage.addEventListener('touchmove',e=>{if(INK.on&&[...e.changedTouches].some(t=>
 document.addEventListener('selectstart',e=>{if(INK.on&&$('body').dataset.view==='reader')e.preventDefault()});
 document.addEventListener('contextmenu',e=>{if($('body').dataset.view==='reader')e.preventDefault()});
 document.addEventListener('selectionchange',()=>{if(INK.on&&$('body').dataset.view==='reader'){try{const g=getSelection();if(g&&g.rangeCount&&!g.isCollapsed)g.removeAllRanges()}catch(_){}}});
-function penNear(){return !INK.penGone&&performance.now()-INK.penT<(INK.hoverSeen?4000:1200)}
+function penNear(){return !INK.penGone&&performance.now()-INK.penT<(INK.hoverSeen?1500:1200)}
+function touchBlock(e){
+  if(INK.cur&&performance.now()-(INK.cur.t||0)>1200){const c=INK.cur;INK.cur=null;INK.last=performance.now()-1000;if(c.st&&!c.st.q.length){const a=INK.data[c.key];a.splice(a.indexOf(c.st),1)}inkSave()}
+  if(!INK.fx)return '손가락 넘기기가 꺼져 있어요 (◀ ▶ 로 넘기세요)';
+  if(INK.cur)return '펜슬로 쓰는 중이에요';
+  if(penNear())return '펜슬이 가까이 있어 손 터치를 무시했어요';
+  if(performance.now()-INK.last<600)return '-';
+  if(!e.isPrimary)return '-';
+  if(Math.max(e.width||0,e.height||0)>90)return '손바닥으로 판단해 무시했어요';
+  return '';
+}
+let whyT=0;
+function inkWhy(m){if(m&&m!=='-'&&performance.now()-whyT>2500){whyT=performance.now();toast(m,1600)}}
 function penSeen(e){
   if(e.pointerType!=='pen')return;
   INK.penT=performance.now();INK.penGone=false;
@@ -1109,12 +1122,13 @@ document.querySelectorAll('#ink-bar [data-w]').forEach(b=>b.onclick=()=>{INK.w=+
 let drag=null;
 stage.addEventListener('pointerdown',e=>{
   if(!INK.on&&e.pointerType==='pen'&&!document.body.classList.contains('chrome')&&!document.querySelector('.sheet.open')&&!F&&!busy&&$('body').dataset.view==='reader'){openInk(true)}
-  if(INK.on){if(e.pointerType==='pen'){if(drag){const d=drag;drag=null;if(d.dir&&F)runFlip(F.t,0)}inkDown(e);return}if(e.pointerType==='touch'&&(!INK.fx||INK.cur||penNear()||performance.now()-INK.last<600||!e.isPrimary||e.width>40||e.height>40))return}
+  if(INK.on){if(e.pointerType==='pen'){if(drag){const d=drag;drag=null;if(d.dir&&F)runFlip(F.t,0)}inkDown(e);return}if(e.pointerType==='touch'){const why=touchBlock(e);if(why){inkWhy(why);return}}}
   if(busy||F||document.querySelector('.sheet.open'))return;
   drag={x:e.clientX,y:e.clientY,t0:performance.now(),dir:0,dead:false,hist:[{x:e.clientX,t:performance.now()}]};
   try{stage.setPointerCapture(e.pointerId)}catch(_){}
 });
 stage.addEventListener('pointermove',e=>{
+  if(INK.cur&&e.pointerType==='pen'&&e.pointerId===INK.cur.id&&e.buttons===0&&!e.pressure){inkUp(e)}
   if(INK.cur){if(e.pointerId===INK.cur.id)inkMove(e);else if(e.pointerType==='pen'){INK.cur=null;if(e.buttons>0)inkDown(e)}return}
   if(INK.on&&e.pointerType==='pen'&&e.buttons>0&&!INK.cur){inkDown(e);return}
   if(!drag||drag.dead)return;
