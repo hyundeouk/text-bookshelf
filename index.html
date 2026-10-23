@@ -152,6 +152,7 @@ body.crisp .inner h2,body.crisp .inner h3.sh{-webkit-text-stroke:.15px currentCo
 #bar-bot .cap{color:#aaa}
 #p-book .about{margin-top:14px;padding-top:12px;border-top:1px solid var(--line);font-size:.85rem;line-height:1.8;color:var(--mut)}
 #p-book .about a{color:var(--acc)}
+#stage *{-webkit-user-select:none!important;user-select:none!important;-webkit-touch-callout:none!important;-webkit-tap-highlight-color:transparent}
 #ink-bar{position:fixed;left:50%;top:calc(var(--safe-t) + 10px);transform:translateX(-50%);z-index:57;background:rgba(17,17,17,.95);color:#fff;border-radius:30px;padding:6px 10px;display:flex;gap:2px;align-items:center;box-shadow:0 6px 24px rgba(0,0,0,.45);max-width:96vw;overflow-x:auto}
 #ink-bar button{padding:9px 12px;border-radius:20px;font-size:.92rem;font-weight:600;color:#fff;white-space:nowrap;display:flex;align-items:center;justify-content:center}
 #ink-bar button.on{background:rgba(255,255,255,.24)}
@@ -1022,6 +1023,8 @@ function inkErase(e){
 }
 function inkSched(){if(INK.raf)return;INK.raf=requestAnimationFrame(()=>{INK.raf=0;if(INK.cur)inkDraw(INK.cur.p)})}
 function inkDown(e){
+  e.preventDefault();
+  try{const g=getSelection();if(g&&g.rangeCount)g.removeAllRanges()}catch(_){}
   if(F||busy||document.querySelector('.sheet.open'))return;
   const h=inkPageAt(e.clientX,e.clientY);if(!h||!h.p._ink)return;
   try{stage.setPointerCapture(e.pointerId)}catch(_){}
@@ -1071,6 +1074,11 @@ function openInk(auto){
   INK.noHover=false;INK.on=true;document.body.classList.add('ink');setChrome(false);$('#ink-bar').hidden=false;inkBar();
   if(!auto)toast(INK.fx?'펜슬이 가까이 있는 동안은 손이 닿아도 책장이 안 넘어가요':'펜슬로 쓰세요. 책장은 위쪽 ◀ ▶ 단추로 넘겨요',3000);
 }
+stage.addEventListener('touchstart',e=>{if(INK.on&&[...e.changedTouches].some(t=>t.touchType==='stylus'))e.preventDefault()},{passive:false});
+stage.addEventListener('touchmove',e=>{if(INK.on&&[...e.changedTouches].some(t=>t.touchType==='stylus'))e.preventDefault()},{passive:false});
+document.addEventListener('selectstart',e=>{if(INK.on&&$('body').dataset.view==='reader')e.preventDefault()});
+document.addEventListener('contextmenu',e=>{if($('body').dataset.view==='reader')e.preventDefault()});
+document.addEventListener('selectionchange',()=>{if(INK.on&&$('body').dataset.view==='reader'){try{const g=getSelection();if(g&&g.rangeCount&&!g.isCollapsed)g.removeAllRanges()}catch(_){}}});
 function penNear(){return !INK.penGone&&performance.now()-INK.penT<(INK.hoverSeen?4000:1200)}
 function penSeen(e){
   if(e.pointerType!=='pen')return;
@@ -1107,7 +1115,8 @@ stage.addEventListener('pointerdown',e=>{
   try{stage.setPointerCapture(e.pointerId)}catch(_){}
 });
 stage.addEventListener('pointermove',e=>{
-  if(INK.cur){if(e.pointerId===INK.cur.id)inkMove(e);return}
+  if(INK.cur){if(e.pointerId===INK.cur.id)inkMove(e);else if(e.pointerType==='pen'){INK.cur=null;if(e.buttons>0)inkDown(e)}return}
+  if(INK.on&&e.pointerType==='pen'&&e.buttons>0&&!INK.cur){inkDown(e);return}
   if(!drag||drag.dead)return;
   const dx=e.clientX-drag.x,dy=e.clientY-drag.y;
   if(!drag.dir){
