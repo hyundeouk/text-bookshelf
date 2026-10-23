@@ -152,6 +152,15 @@ body.crisp .inner h2,body.crisp .inner h3.sh{-webkit-text-stroke:.15px currentCo
 #bar-bot .cap{color:#aaa}
 #p-book .about{margin-top:14px;padding-top:12px;border-top:1px solid var(--line);font-size:.85rem;line-height:1.8;color:var(--mut)}
 #p-book .about a{color:var(--acc)}
+#ink-bar{position:fixed;left:50%;top:calc(var(--safe-t) + 10px);transform:translateX(-50%);z-index:57;background:rgba(17,17,17,.95);color:#fff;border-radius:30px;padding:6px 10px;display:flex;gap:2px;align-items:center;box-shadow:0 6px 24px rgba(0,0,0,.45);max-width:96vw;overflow-x:auto}
+#ink-bar button{padding:9px 12px;border-radius:20px;font-size:.92rem;font-weight:600;color:#fff;white-space:nowrap;display:flex;align-items:center;justify-content:center}
+#ink-bar button.on{background:rgba(255,255,255,.24)}
+#ink-bar .sep{width:1px;height:24px;background:rgba(255,255,255,.25);margin:0 6px;flex:none}
+#ink-bar .wd i{display:block;border-radius:50%;background:#fff}
+#ink-colors{display:flex;gap:8px;align-items:center}
+#ink-colors b{width:26px;height:26px;border-radius:50%;border:2px solid rgba(255,255,255,.5);display:block;flex:none}
+#ink-colors b.on{border-color:#fff;box-shadow:0 0 0 2px #fff}
+.inkc{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:3}
 #tts-bar{position:fixed;left:50%;bottom:calc(var(--safe-b) + 18px);transform:translateX(-50%);z-index:56;background:rgba(17,17,17,.95);color:#fff;border-radius:32px;padding:6px 10px;display:flex;gap:2px;align-items:center;box-shadow:0 6px 24px rgba(0,0,0,.45);transition:bottom .25s}
 #tts-bar button{padding:10px 15px;border-radius:22px;font-size:1.05rem;font-weight:600;color:#fff}
 #tts-bar button:active{background:rgba(255,255,255,.18)}
@@ -241,6 +250,7 @@ textarea{height:34vh;margin-top:8px;resize:none}
   <div class="bar" id="bar-top">
     <button class="ib" id="b-back">‹ 책장</button>
     <div class="ttl" id="b-title"></div>
+    <button class="ib" id="b-ink" aria-label="필기">✏️</button>
     <button class="ib" id="b-tts" aria-label="읽어주기">🔊</button>
     <button class="ib" id="b-toc">목차</button>
     <button class="ib" id="b-set">Aa</button>
@@ -261,6 +271,12 @@ textarea{height:34vh;margin-top:8px;resize:none}
   <div class="actions" style="margin:14px 0 0"><button class="btn" id="paste-ok">책으로 만들기</button><button class="btn ghost" id="paste-cancel">취소</button></div>
 </div></div>
 <div class="sheet" id="sh-book"><div class="panel" id="p-book"></div></div>
+<div id="ink-bar" hidden>
+  <button data-tool="pen">✏️ 펜</button><button data-tool="hl">🖍 형광펜</button><button data-tool="erase">🧽 지우개</button>
+  <span class="sep"></span><span id="ink-colors"></span><span class="sep"></span>
+  <button class="wd" data-w="0" aria-label="가늘게"><i style="width:4px;height:4px"></i></button><button class="wd" data-w="1" aria-label="보통"><i style="width:8px;height:8px"></i></button><button class="wd" data-w="2" aria-label="굵게"><i style="width:13px;height:13px"></i></button>
+  <span class="sep"></span><button id="ink-undo" aria-label="되돌리기">↶</button><button id="ink-clear" aria-label="이 쪽 지우기">🗑</button><button id="ink-done">완료</button>
+</div>
 <div id="tts-bar" hidden><button id="tt-play">⏸</button><button id="tt-stop">⏹</button><button id="tt-slow">−</button><span id="tt-rate">1.0x</span><button id="tt-fast">＋</button><button id="tt-voice">🗣</button></div>
 <div class="sheet" id="sh-tts"><div class="panel" id="p-tts"></div></div>
 <div id="toast"></div>
@@ -451,7 +467,7 @@ function openBookMenu(m){
   add('🖼 표지 사진 올리기'+(m.cover?' (바꾸기)':''),()=>{coverTarget=m.id;$('#cover-file').click()});
   if(m.cover)add('표지 지우기',async()=>{const x=await dbGet('books',m.id);x.cover=null;x.coverCustom=false;await dbPut('books',x);renderLib()});
   add('✎ 이름 바꾸기',async()=>{const n=prompt('책 이름',m.title);if(n&&n.trim()){const x=await dbGet('books',m.id);x.title=n.trim();await dbPut('books',x);renderLib()}});
-  add('🗑 서재에서 지우기',async()=>{if(confirm('“'+m.title+'”을(를) 서재에서 지울까요?')){await dbDel('books',m.id);await dbDel('texts',m.id);renderLib()}});
+  add('🗑 서재에서 지우기',async()=>{if(confirm('“'+m.title+'”을(를) 서재에서 지울까요?')){await dbDel('books',m.id);await dbDel('texts',m.id);try{await dbDel('texts','ink:'+m.id)}catch(e){}renderLib()}});
   $('#sh-book').classList.add('open');
 }
 $('#cover-file').onchange=async e=>{
@@ -553,7 +569,7 @@ async function mergeSelected(){
   await dbPut('books',nm);await dbPut('texts',{id:nm.id,text});
   let removed=false;
   if(confirm('“'+nm.title+'” 한 권으로 합쳤어요.\n\n원래 책 '+metas.length+'권은 서재에서 지울까요?\n(“취소”를 누르면 그대로 둡니다)')){
-    for(const m of metas){await dbDel('books',m.id);await dbDel('texts',m.id)}removed=true;
+    for(const m of metas){await dbDel('books',m.id);await dbDel('texts',m.id);try{await dbDel('texts','ink:'+m.id)}catch(e){}}removed=true;
   }
   exitSel();
   toast('합치기 완료'+(removed?'':' · 원래 책은 그대로 남겨 두었어요'),3500);
@@ -705,7 +721,8 @@ $('#btn-sample').onclick=async()=>{
     ['제1장 시작하기',['이 앱은 텍스트 파일을 책처럼 읽게 해 주는 작은 책장입니다. 책장 화면에서 텍스트 추가 단추를 누르고 아이패드의 파일 앱에서 .txt 파일을 고르면 곧바로 책장에 꽂힙니다.','파일 하나가 한 권의 책이 되고, 읽던 쪽은 자동으로 기억합니다. 다음에 열면 마지막으로 읽던 곳에서 이어서 읽을 수 있습니다.']],
     ['제2장 책장 넘기기',['화면의 오른쪽 가장자리에서 왼쪽으로 쓸어 넘기면 종이가 넘어가듯 다음 쪽으로 넘어갑니다. 손가락을 떼기 전에는 종이가 손가락을 따라오고, 반쯤 넘기면 알아서 끝까지 넘어갑니다.','왼쪽에서 오른쪽으로 쓸면 앞쪽으로 돌아갑니다. 화면의 양쪽 끝을 톡 눌러도 넘어갑니다. 화면 가운데를 한 번 누르면 위아래에 메뉴가 나타나서 목차와 글자 설정, 읽은 위치 막대를 쓸 수 있습니다.','아이패드를 가로로 눕히면 펼친 책처럼 두 쪽이 나란히 보이고, 세로로 세우면 한 쪽씩 보입니다.']],
     ['제3장 자동 정리',['옛날에 만든 텍스트 파일은 글자 형식이 달라서 한글이 깨져 보이는 경우가 많습니다. 이 앱은 파일을 열 때 형식을 알아내서 알맞게 바꿔 읽습니다.','또 어떤 파일은 한 줄이 너무 짧게 끊겨 있습니다. 문장 중간에서 줄이 바뀌면 책으로 읽기 불편한데, 이 앱은 끊긴 줄을 이어 붙여서 문단으로 만들어 줍니다. 지금 읽고 있는 이 안내 글도 일부러 줄을 끊어 저장해 둔 것입니다.','제1장, 1화, Chapter 1 같은 제목 줄을 찾아서 장으로 나누고 목차도 만들어 줍니다. 설정의 정리 방식에서 문단으로 합치기나 줄 그대로를 고르면 파일에 맞게 직접 바꿀 수도 있습니다.']],
-    ['제4장 책 읽어주기',['책을 연 상태에서 화면 가운데를 한 번 누르면 위쪽 막대가 나타납니다. 거기서 스피커 모양 단추를 누르면 읽어주기 창이 열립니다. 여자 목소리와 남자 목소리 중에서 고르고, 속도를 조절한 뒤 여기서부터 읽기를 누르면 지금 보고 있는 쪽부터 소리 내어 읽어 줍니다.','쪽이 끝나면 책장이 저절로 넘어가면서 계속 읽습니다. 아래쪽에 나타나는 작은 막대에서 잠깐 멈춤, 완전히 멈춤, 속도 조절, 목소리 바꾸기를 할 수 있습니다. 손으로 책장을 넘기면 넘긴 쪽부터 다시 읽습니다.','읽는 방식은 두 가지입니다. 자연스러운 음성은 마이크로소프트 신경망 음성을 쓰기 때문에 사람 목소리에 가깝지만, 음성 서버 주소를 한 번 넣어 두어야 하고 인터넷이 필요합니다. 기기 음성은 아이패드에 들어 있는 음성을 쓰므로 주소가 필요 없지만 목소리가 조금 기계적입니다. 서버에 연결하지 못하면 자동으로 기기 음성으로 바뀝니다.','괄호 안에 적힌 한자는 두 번 읽지 않도록 건너뜁니다. 글자 변환이 아닌 원본 쪽 그림으로 보는 PDF는 읽어줄 수 없으니, 설정에서 글자로 변환을 골라 주세요.']]
+    ['제4장 책 읽어주기',['책을 연 상태에서 화면 가운데를 한 번 누르면 위쪽 막대가 나타납니다. 거기서 스피커 모양 단추를 누르면 읽어주기 창이 열립니다. 여자 목소리와 남자 목소리 중에서 고르고, 속도를 조절한 뒤 여기서부터 읽기를 누르면 지금 보고 있는 쪽부터 소리 내어 읽어 줍니다.','쪽이 끝나면 책장이 저절로 넘어가면서 계속 읽습니다. 아래쪽에 나타나는 작은 막대에서 잠깐 멈춤, 완전히 멈춤, 속도 조절, 목소리 바꾸기를 할 수 있습니다. 손으로 책장을 넘기면 넘긴 쪽부터 다시 읽습니다.','읽는 방식은 두 가지입니다. 자연스러운 음성은 마이크로소프트 신경망 음성을 쓰기 때문에 사람 목소리에 가깝지만, 음성 서버 주소를 한 번 넣어 두어야 하고 인터넷이 필요합니다. 기기 음성은 아이패드에 들어 있는 음성을 쓰므로 주소가 필요 없지만 목소리가 조금 기계적입니다. 서버에 연결하지 못하면 자동으로 기기 음성으로 바뀝니다.','괄호 안에 적힌 한자는 두 번 읽지 않도록 건너뜁니다. 글자 변환이 아닌 원본 쪽 그림으로 보는 PDF는 읽어줄 수 없으니, 설정에서 글자로 변환을 골라 주세요.']],
+    ['제5장 펜슬로 메모하기',['책을 연 상태에서 화면 가운데를 눌러 위쪽 막대를 띄우고, 연필 모양 단추를 누르면 필기 도구가 나타납니다. 펜, 형광펜, 지우개 중에서 고르고 색과 굵기를 바꿀 수 있습니다. 애플 펜슬로 쓰면 눌러 쓰는 세기에 따라 선이 굵어지고 얇아집니다.','필기 도구가 켜져 있어도 손가락은 그대로 책장을 넘깁니다. 화면 양쪽 끝을 눌러도 넘어가고, 쓰던 손바닥이 닿아도 책장이 넘어가지 않게 막아 둡니다. 되돌리기 단추로 방금 쓴 것을 취소하고, 휴지통 단추로 지금 보이는 쪽의 메모를 모두 지울 수 있습니다. 다 쓰면 완료를 누릅니다.','메모는 쪽마다 저장되고 이 기기 안에만 남습니다. 단, 글자 크기나 글꼴, 줄 간격을 바꾸면 쪽이 다시 나뉘기 때문에 메모가 보이지 않게 됩니다. 원래 설정으로 되돌리면 다시 나타나니 지워진 것은 아닙니다. 메모를 많이 하는 책은 글자 설정을 정해 두고 읽으세요. PDF를 원본 쪽 모양으로 볼 때는 설정과 상관없이 메모가 항상 그 쪽에 붙어 있습니다.']]
   ];
   const lines=[];
   for(const[h,ps]of chapters){lines.push(h,'');for(const p of ps){wrapWords(p,32).forEach((l,i)=>lines.push((i?'':'  ')+l));lines.push('')}}
@@ -812,6 +829,7 @@ function buildPdfPage(k){
     cv.style.width=Math.floor(vp.width/dpr)+'px';cv.style.height=Math.floor(vp.height/dpr)+'px';
     return pg.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
   }).catch(()=>{});
+  inkAttach(e,0,k);
   return e;
 }
 function buildPage(s,k){
@@ -825,7 +843,7 @@ function buildPage(s,k){
   if(!t){for(let i=s;i>=0;i--)if(S.secs[i].title){t=S.secs[i].title;break}}
   e.appendChild(el('div','head',esc(t||S.meta.title)));
   e.appendChild(el('div','foot',(k+1)+' / '+pageCount(s)));
-  e._k=s+':'+k;return e;
+  e._k=s+':'+k;inkAttach(e,s,k);return e;
 }
 function trimCache(){const lim=S.pdf?5:14;while(cache.size>lim)cache.delete(cache.keys().next().value)}
 function stash(e){if(e&&e._k!=null){cache.set(e._k,e);trimCache()}}
@@ -930,14 +948,151 @@ function go(dir){
 }
 function runFlipFromStart(){ if(!F)return; runFlip(0,1) }
 
+/* ---------- 펜슬 메모 ---------- */
+const INK={on:false,tool:'pen',pc:'#d93025',hc:'#ffe14d',w:1,stack:[],cur:null,last:0,saveT:0,raf:0,data:{}};
+try{const o=JSON.parse(localStorage.getItem('tb.ink')||'{}');for(const k of['tool','pc','hc','w'])if(o[k]!=null)INK[k]=o[k]}catch(e){}
+const saveInkSet=()=>{try{localStorage.setItem('tb.ink',JSON.stringify({tool:INK.tool,pc:INK.pc,hc:INK.hc,w:INK.w}))}catch(e){}};
+const INK_W=[[.0016,.0030,.0055],[.010,.016,.026]];
+const PEN_C=['#111111','#d93025','#1a56db','#188038','#ffffff'],HL_C=['#ffe14d','#8ef08e','#ff9ec4','#7fd4ff'];
+async function inkLoad(id){let r=null;try{r=await dbGet('texts','ink:'+id)}catch(e){}INK.data=(r&&r.data)||{};INK.stack=[]}
+function inkSave(){clearTimeout(INK.saveT);INK.saveT=setTimeout(inkFlush,700)}
+async function inkFlush(){
+  clearTimeout(INK.saveT);if(!S.meta)return;
+  const id=S.meta.id,empty=!Object.values(INK.data).some(a=>a.length);
+  try{if(empty)await dbDel('texts','ink:'+id);else await dbPut('texts',{id:'ink:'+id,data:INK.data})}catch(e){}
+}
+const inkSig=()=>[S.set.fs,S.set.ff,S.set.lh,S.set.just,M.cw,M.ch,S.secs.length].join('|');
+function inkKeyFor(s,k){
+  if(s==null)return null;
+  if(S.pdf)return 'P|'+k;
+  const st=pageStarts(s)[k];if(!st)return null;
+  return 'T|'+inkSig()+'|'+s+':'+st.c+':'+st.o;
+}
+function strokePath(g,st,W,H){
+  const q=st.q,n=q.length/3;if(!n)return;
+  g.lineCap='round';g.lineJoin='round';g.strokeStyle=st.c;g.fillStyle=st.c;
+  const base=st.w*W;
+  if(st.k==='h'){
+    g.globalAlpha=.38;g.lineWidth=base;g.beginPath();g.moveTo(q[0]*W,q[1]*H);
+    for(let i=1;i<n;i++)g.lineTo(q[3*i]*W,q[3*i+1]*H);
+    if(n===1)g.lineTo(q[0]*W+.1,q[1]*H);
+    g.stroke();g.globalAlpha=1;return;
+  }
+  if(n===1){g.beginPath();g.arc(q[0]*W,q[1]*H,base*(.55+.9*q[2])/2,0,6.3);g.fill();return}
+  for(let i=1;i<n;i++){
+    g.lineWidth=base*(.55+.9*(q[3*i-1]+q[3*i+2])/2);
+    g.beginPath();g.moveTo(q[3*(i-1)]*W,q[3*(i-1)+1]*H);g.lineTo(q[3*i]*W,q[3*i+1]*H);g.stroke();
+  }
+}
+function inkDraw(e){
+  const cv=e&&e._cv;if(!cv)return;
+  const dpr=Math.min(window.devicePixelRatio||1,2),W=Math.round(M.pw*dpr),H=Math.round(M.ph*dpr);
+  if(cv.width!==W||cv.height!==H){cv.width=W;cv.height=H}
+  const g=cv.getContext('2d');g.clearRect(0,0,W,H);
+  const arr=e._ink&&INK.data[e._ink];if(!arr||!arr.length)return;
+  for(const st of arr)if(st.k==='h')strokePath(g,st,W,H);
+  for(const st of arr)if(st.k!=='h')strokePath(g,st,W,H);
+}
+function inkAttach(e,s,k){
+  const cv=el('canvas','inkc');e.appendChild(cv);e._cv=cv;e._ink=inkKeyFor(s,k);inkDraw(e);
+}
+function inkRedrawAll(){for(const sl of[slotL,slotR])if(sl.firstChild)inkDraw(sl.firstChild);for(const e of cache.values())inkDraw(e)}
+function inkPageAt(x,y){
+  for(const sl of[slotR,slotL]){const p=sl.firstChild;if(!p||!p._cv)continue;const r=p.getBoundingClientRect();if(x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom)return{p,r}}
+  return null;
+}
+function inkPt(e){
+  const c=INK.cur,r=c.r,evs=e.getCoalescedEvents?e.getCoalescedEvents():[];
+  for(const ev of(evs.length?evs:[e])){
+    const x=clamp((ev.clientX-r.left)/r.width,0,1),y=clamp((ev.clientY-r.top)/r.height,0,1),q=c.st.q,n=q.length;
+    if(n>=3&&Math.abs(q[n-3]-x)<.0004&&Math.abs(q[n-2]-y)<.0004)continue;
+    q.push(+x.toFixed(4),+y.toFixed(4),+(ev.pressure||.5).toFixed(2));
+  }
+}
+function inkErase(e){
+  const c=INK.cur,arr=INK.data[c.key];if(!arr||!arr.length)return;
+  const px=e.clientX-c.r.left,py=e.clientY-c.r.top,W=c.r.width,H=c.r.height,R=16;
+  const keep=arr.filter(st=>{
+    const rr=R+(st.k==='h'?st.w*W/2:0),q=st.q;
+    for(let i=0;i<q.length;i+=3)if(Math.hypot(q[i]*W-px,q[i+1]*H-py)<rr)return false;
+    return true;
+  });
+  if(keep.length!==arr.length){INK.data[c.key]=keep;c.changed=true;inkSched()}
+}
+function inkSched(){if(INK.raf)return;INK.raf=requestAnimationFrame(()=>{INK.raf=0;if(INK.cur)inkDraw(INK.cur.p)})}
+function inkDown(e){
+  if(F||busy||document.querySelector('.sheet.open'))return;
+  const h=inkPageAt(e.clientX,e.clientY);if(!h||!h.p._ink)return;
+  try{stage.setPointerCapture(e.pointerId)}catch(_){}
+  const key=h.p._ink;
+  INK.stack.push({snaps:[{key,arr:(INK.data[key]||[]).slice()}]});if(INK.stack.length>60)INK.stack.shift();
+  INK.cur={id:e.pointerId,p:h.p,r:h.r,key,st:null,changed:false};
+  if(INK.tool==='erase')inkErase(e);
+  else{
+    const hl=INK.tool==='hl',st={k:hl?'h':'p',c:hl?INK.hc:INK.pc,w:INK_W[hl?1:0][INK.w],q:[]};
+    (INK.data[key]=INK.data[key]||[]).push(st);INK.cur.st=st;INK.cur.changed=true;inkPt(e);inkSched();
+  }
+  e.preventDefault();
+}
+function inkMove(e){
+  if(INK.tool==='erase')inkErase(e);else{inkPt(e);inkSched()}
+  e.preventDefault();
+}
+function inkUp(e){
+  const c=INK.cur;INK.cur=null;INK.last=performance.now();if(!c)return;
+  if(c.st&&!c.st.q.length){const a=INK.data[c.key];a.splice(a.indexOf(c.st),1);c.changed=false}
+  if(!c.changed)INK.stack.pop();
+  inkDraw(c.p);if(c.changed)inkSave();
+}
+function inkUndo(){
+  const a=INK.stack.pop();if(!a){toast('되돌릴 것이 없어요',1200);return}
+  for(const sn of a.snaps)INK.data[sn.key]=sn.arr;
+  inkRedrawAll();inkSave();
+}
+function inkClear(){
+  const snaps=[];
+  for(const sl of[slotL,slotR]){const p=sl.firstChild;if(p&&p._ink&&(INK.data[p._ink]||[]).length)snaps.push({key:p._ink,arr:INK.data[p._ink].slice()})}
+  if(!snaps.length){toast('지울 메모가 없어요',1200);return}
+  INK.stack.push({snaps});for(const sn of snaps)INK.data[sn.key]=[];
+  inkRedrawAll();inkSave();toast('이 쪽 메모를 지웠어요. ↶ 로 되돌릴 수 있어요',2500);
+}
+function inkBar(){
+  document.querySelectorAll('#ink-bar [data-tool]').forEach(b=>b.classList.toggle('on',b.dataset.tool===INK.tool));
+  document.querySelectorAll('#ink-bar [data-w]').forEach(b=>b.classList.toggle('on',+b.dataset.w===INK.w));
+  const cols=INK.tool==='hl'?HL_C:PEN_C,cur=INK.tool==='hl'?INK.hc:INK.pc,box=$('#ink-colors');
+  box.style.display=INK.tool==='erase'?'none':'flex';
+  box.innerHTML='';
+  for(const c of cols){const b=document.createElement('b');b.style.background=c;if(c===cur)b.className='on';b.onclick=()=>{if(INK.tool==='hl')INK.hc=c;else INK.pc=c;saveInkSet();inkBar()};box.appendChild(b)}
+}
+function openInk(auto){
+  if(INK.on)return;
+  INK.noHover=false;INK.on=true;document.body.classList.add('ink');setChrome(false);$('#ink-bar').hidden=false;inkBar();
+  if(!auto)toast('펜슬로 쓰고, 손가락으로 책장을 넘기세요',2800);
+}
+stage.addEventListener('pointermove',e=>{
+  if(e.pointerType==='pen'&&!INK.on&&!INK.noHover&&e.buttons===0&&$('body').dataset.view==='reader'&&!document.body.classList.contains('chrome')&&!document.querySelector('.sheet.open')&&!F&&!busy)openInk(true);
+});
+function closeInk(){
+  INK.noHover=true;INK.on=false;INK.cur=null;document.body.classList.remove('ink');$('#ink-bar').hidden=true;inkFlush();
+}
+$('#b-ink').onclick=()=>openInk(false);
+$('#ink-done').onclick=closeInk;
+$('#ink-undo').onclick=inkUndo;
+$('#ink-clear').onclick=inkClear;
+document.querySelectorAll('#ink-bar [data-tool]').forEach(b=>b.onclick=()=>{INK.tool=b.dataset.tool;saveInkSet();inkBar()});
+document.querySelectorAll('#ink-bar [data-w]').forEach(b=>b.onclick=()=>{INK.w=+b.dataset.w;saveInkSet();inkBar()});
+
 /* 손가락 따라 넘기기 */
 let drag=null;
 stage.addEventListener('pointerdown',e=>{
+  if(!INK.on&&e.pointerType==='pen'&&!document.body.classList.contains('chrome')&&!document.querySelector('.sheet.open')&&!F&&!busy&&$('body').dataset.view==='reader'){openInk(true)}
+  if(INK.on){if(e.pointerType==='pen'){inkDown(e);return}if(e.pointerType==='touch'&&(INK.cur||performance.now()-INK.last<450))return}
   if(busy||F||document.querySelector('.sheet.open'))return;
   drag={x:e.clientX,y:e.clientY,t0:performance.now(),dir:0,dead:false,hist:[{x:e.clientX,t:performance.now()}]};
   try{stage.setPointerCapture(e.pointerId)}catch(_){}
 });
 stage.addEventListener('pointermove',e=>{
+  if(INK.cur){if(e.pointerId===INK.cur.id)inkMove(e);return}
   if(!drag||drag.dead)return;
   const dx=e.clientX-drag.x,dy=e.clientY-drag.y;
   if(!drag.dir){
@@ -960,6 +1115,7 @@ function finishDrag(e,cancelled){
     const dt=performance.now()-d.t0;
     if(Math.hypot(e.clientX-d.x,e.clientY-d.y)<12&&dt<600){
       const fx=e.clientX/innerWidth;
+      if(INK.on){if(fx<0.28)go(-1);else if(fx>0.72)go(1);return}
       if(document.body.classList.contains('chrome')){setChrome(false);return}
       if(fx<0.28)go(-1);else if(fx>0.72)go(1);else setChrome(true);
     }
@@ -970,8 +1126,8 @@ function finishDrag(e,cancelled){
   const commit=t>0.4||(vd>0.4&&t>0.04);
   runFlip(t,commit?1:0);
 }
-stage.addEventListener('pointerup',e=>finishDrag(e,false));
-stage.addEventListener('pointercancel',e=>finishDrag(e,true));
+stage.addEventListener('pointerup',e=>{if(INK.cur&&e.pointerId===INK.cur.id){inkUp(e);return}finishDrag(e,false)});
+stage.addEventListener('pointercancel',e=>{if(INK.cur&&e.pointerId===INK.cur.id){inkUp(e);return}finishDrag(e,true)});
 document.addEventListener('gesturestart',e=>e.preventDefault());
 addEventListener('keydown',e=>{
   if($('body').dataset.view!=='reader')return;
@@ -1055,7 +1211,7 @@ async function openBook(id,startFrac){
       S.pdf={doc,n:doc.numPages};
     }catch(e){toast('PDF를 열 수 없어요');return}
   }
-  S.meta=meta;S.text=t.text||'';reparse();
+  S.meta=meta;S.text=t.text||'';await inkLoad(id);reparse();
   document.body.dataset.view='reader';
   $('#b-title').textContent=meta.title;
   applySet();
@@ -1066,6 +1222,7 @@ async function openBook(id,startFrac){
 }
 async function closeBook(){
   ttsStop();
+  if(INK.on)closeInk();else await inkFlush();
   clearTimeout(saveT);
   if(S.meta)await dbPut('books',S.meta);
   setChrome(false);
@@ -1385,7 +1542,7 @@ addEventListener('resize',()=>{
 });
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&S.meta)dbPut('books',S.meta)});
 
-window.__tb={AUD,TTS,ttsSet,S,M:()=>M,pageStarts,pageCount,buildPage,kidsOf,measure};
+window.__tb={INK,AUD,TTS,ttsSet,S,M:()=>M,pageStarts,pageCount,buildPage,kidsOf,measure};
 try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
 applySet();renderLib();
 if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});
