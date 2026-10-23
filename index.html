@@ -150,10 +150,12 @@ body.crisp .inner h2,body.crisp .inner h3.sh{-webkit-text-stroke:.15px currentCo
 .cf{position:absolute;bottom:0;width:200px;display:block;transform-origin:100% 100%;background:linear-gradient(to left,rgba(0,0,0,.42) 0,rgba(0,0,0,.14) 14%,rgba(255,255,255,.26) 26%,transparent 64%)}
 .bar{background:#111!important;color:#f2f2f2!important}
 #bar-bot .cap{color:#aaa}
+#p-book .about{margin-top:14px;padding-top:12px;border-top:1px solid var(--line);font-size:.85rem;line-height:1.8;color:var(--mut)}
+#p-book .about a{color:var(--acc)}
 #tts-bar{position:fixed;left:50%;bottom:calc(var(--safe-b) + 18px);transform:translateX(-50%);z-index:56;background:rgba(17,17,17,.95);color:#fff;border-radius:32px;padding:6px 10px;display:flex;gap:2px;align-items:center;box-shadow:0 6px 24px rgba(0,0,0,.45);transition:bottom .25s}
 #tts-bar button{padding:10px 15px;border-radius:22px;font-size:1.05rem;font-weight:600;color:#fff}
 #tts-bar button:active{background:rgba(255,255,255,.18)}
-#p-tts input.url{width:100%;padding:10px 12px;margin-top:6px;border:1px solid var(--line);border-radius:10px;background:transparent;color:inherit;font-size:.9rem}
+#p-tts input.url,#p-book input.url{width:100%;padding:10px 12px;margin-top:6px;border:1px solid var(--line);border-radius:10px;background:transparent;color:inherit;font-size:.9rem}
 #tt-rate{min-width:46px;text-align:center;font-size:.85rem;color:#ccc}
 body.chrome #tts-bar{bottom:calc(var(--safe-b) + 112px)}
 .vl button{display:flex;justify-content:space-between;gap:10px;width:100%;padding:12px 4px;border-top:1px solid var(--line);text-align:left;font-size:.95rem}
@@ -483,12 +485,28 @@ $('#b-search').onclick=()=>{const r=$('#searchrow');r.hidden=!r.hidden;if(!r.hid
 $('#q').oninput=e=>{q=e.target.value.trim();renderLib()};
 async function loadBanner(){const b=await dbGet('texts','__banner'),e=$('#banner');if(b&&b.img){e.style.backgroundImage='url('+b.img+')';e.classList.add('img')}else{e.style.backgroundImage='';e.classList.remove('img')}}
 $('#banner-file').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;try{await dbPut('texts',{id:'__banner',img:await imgToDataURL(f,1500)});loadBanner();toast('배너를 바꿨어요')}catch(err){toast('사진을 읽지 못했어요')}};
+function aboutSheet(A){
+  const p=$('#p-book');p.innerHTML='<h3>제작자 정보</h3>';
+  p.appendChild(el('p','note','여기에 적은 내용은 이 기기 안에만 저장되고, 앱 코드나 인터넷에는 올라가지 않아요.'));
+  const f={};
+  for(const[k,l]of[['name','제작자 이름'],['email','이메일'],['tel','전화번호']]){const d=el('div','set');d.style.flexDirection='column';d.style.alignItems='stretch';const inp=el('input','url');inp.value=A[k]||'';inp.autocomplete='off';d.append(el('label','',l),inp);f[k]=inp;p.appendChild(d)}
+  const ok=el('button','btn','저장');ok.onclick=()=>{const v={name:f.name.value.trim(),email:f.email.value.trim(),tel:f.tel.value.trim()};try{localStorage.setItem('tb.about',JSON.stringify(v))}catch(e){}$('#sh-book').classList.remove('open');toast('저장했어요')};
+  p.appendChild(ok);$('#sh-book').classList.add('open');f.name.focus();
+}
 function openLibMenu(){libSheet('설정',[
   ['🖼 위쪽 배너 사진 바꾸기',()=>$('#banner-file').click()],
   ['배너 기본 그림으로',async()=>{await dbDel('texts','__banner');loadBanner()}],
   [viewMode==='list'?'▦ 표지 책장으로 보기':'☰ 목록으로 보기',()=>$('#viewbtn').onclick()],
   ['📖 사용 안내 책 넣기',()=>$('#btn-sample').click()]
-])}
+]);
+  const A=(()=>{try{return JSON.parse(localStorage.getItem('tb.about')||'{}')}catch(e){return{}}})();
+  const ab=el('div','about');
+  if(A.name||A.email||A.tel)ab.innerHTML='<b>제작자</b> '+esc(A.name||'')+(A.email?'<br>이메일 '+esc(A.email):'')+(A.tel?'<br>전화 '+esc(A.tel):'');
+  const eb=el('button','mi',(A.name||A.email||A.tel)?'제작자 정보 고치기':'제작자 정보 적기');
+  eb.onclick=()=>{$('#sh-book').classList.remove('open');aboutSheet(A)};
+  ab.appendChild(eb);
+  $('#p-book').appendChild(ab);
+}
 $('#b-menu').onclick=openLibMenu;$('#t-set').onclick=openLibMenu;
 $('#t-add').onclick=()=>$('#file').click();
 $('#t-merge').onclick=()=>$('#btn-merge').click();
@@ -686,7 +704,8 @@ $('#btn-sample').onclick=async()=>{
   const chapters=[
     ['제1장 시작하기',['이 앱은 텍스트 파일을 책처럼 읽게 해 주는 작은 책장입니다. 책장 화면에서 텍스트 추가 단추를 누르고 아이패드의 파일 앱에서 .txt 파일을 고르면 곧바로 책장에 꽂힙니다.','파일 하나가 한 권의 책이 되고, 읽던 쪽은 자동으로 기억합니다. 다음에 열면 마지막으로 읽던 곳에서 이어서 읽을 수 있습니다.']],
     ['제2장 책장 넘기기',['화면의 오른쪽 가장자리에서 왼쪽으로 쓸어 넘기면 종이가 넘어가듯 다음 쪽으로 넘어갑니다. 손가락을 떼기 전에는 종이가 손가락을 따라오고, 반쯤 넘기면 알아서 끝까지 넘어갑니다.','왼쪽에서 오른쪽으로 쓸면 앞쪽으로 돌아갑니다. 화면의 양쪽 끝을 톡 눌러도 넘어갑니다. 화면 가운데를 한 번 누르면 위아래에 메뉴가 나타나서 목차와 글자 설정, 읽은 위치 막대를 쓸 수 있습니다.','아이패드를 가로로 눕히면 펼친 책처럼 두 쪽이 나란히 보이고, 세로로 세우면 한 쪽씩 보입니다.']],
-    ['제3장 자동 정리',['옛날에 만든 텍스트 파일은 글자 형식이 달라서 한글이 깨져 보이는 경우가 많습니다. 이 앱은 파일을 열 때 형식을 알아내서 알맞게 바꿔 읽습니다.','또 어떤 파일은 한 줄이 너무 짧게 끊겨 있습니다. 문장 중간에서 줄이 바뀌면 책으로 읽기 불편한데, 이 앱은 끊긴 줄을 이어 붙여서 문단으로 만들어 줍니다. 지금 읽고 있는 이 안내 글도 일부러 줄을 끊어 저장해 둔 것입니다.','제1장, 1화, Chapter 1 같은 제목 줄을 찾아서 장으로 나누고 목차도 만들어 줍니다. 설정의 정리 방식에서 문단으로 합치기나 줄 그대로를 고르면 파일에 맞게 직접 바꿀 수도 있습니다.']]
+    ['제3장 자동 정리',['옛날에 만든 텍스트 파일은 글자 형식이 달라서 한글이 깨져 보이는 경우가 많습니다. 이 앱은 파일을 열 때 형식을 알아내서 알맞게 바꿔 읽습니다.','또 어떤 파일은 한 줄이 너무 짧게 끊겨 있습니다. 문장 중간에서 줄이 바뀌면 책으로 읽기 불편한데, 이 앱은 끊긴 줄을 이어 붙여서 문단으로 만들어 줍니다. 지금 읽고 있는 이 안내 글도 일부러 줄을 끊어 저장해 둔 것입니다.','제1장, 1화, Chapter 1 같은 제목 줄을 찾아서 장으로 나누고 목차도 만들어 줍니다. 설정의 정리 방식에서 문단으로 합치기나 줄 그대로를 고르면 파일에 맞게 직접 바꿀 수도 있습니다.']],
+    ['제4장 책 읽어주기',['책을 연 상태에서 화면 가운데를 한 번 누르면 위쪽 막대가 나타납니다. 거기서 스피커 모양 단추를 누르면 읽어주기 창이 열립니다. 여자 목소리와 남자 목소리 중에서 고르고, 속도를 조절한 뒤 여기서부터 읽기를 누르면 지금 보고 있는 쪽부터 소리 내어 읽어 줍니다.','쪽이 끝나면 책장이 저절로 넘어가면서 계속 읽습니다. 아래쪽에 나타나는 작은 막대에서 잠깐 멈춤, 완전히 멈춤, 속도 조절, 목소리 바꾸기를 할 수 있습니다. 손으로 책장을 넘기면 넘긴 쪽부터 다시 읽습니다.','읽는 방식은 두 가지입니다. 자연스러운 음성은 마이크로소프트 신경망 음성을 쓰기 때문에 사람 목소리에 가깝지만, 음성 서버 주소를 한 번 넣어 두어야 하고 인터넷이 필요합니다. 기기 음성은 아이패드에 들어 있는 음성을 쓰므로 주소가 필요 없지만 목소리가 조금 기계적입니다. 서버에 연결하지 못하면 자동으로 기기 음성으로 바뀝니다.','괄호 안에 적힌 한자는 두 번 읽지 않도록 건너뜁니다. 글자 변환이 아닌 원본 쪽 그림으로 보는 PDF는 읽어줄 수 없으니, 설정에서 글자로 변환을 골라 주세요.']]
   ];
   const lines=[];
   for(const[h,ps]of chapters){lines.push(h,'');for(const p of ps){wrapWords(p,32).forEach((l,i)=>lines.push((i?'':'  ')+l));lines.push('')}}
